@@ -3,3 +3,6 @@ This repository is for the implementation and experimentation of different reinf
 
 ### Policy Based 
 - Monte-Carlo Reinforce
+
+### Value Based
+- Q-Learning
