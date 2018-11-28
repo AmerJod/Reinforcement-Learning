@@ -6,3 +6,6 @@ This repository is for the implementation and experimentation of different reinf
 
 ### Value Based
 - Q-Learning
+
+### Actor-Critic methods
+- Advantage Actor-Critic (A2A)
