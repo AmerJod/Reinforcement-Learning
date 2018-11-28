@@ -1,12 +1,22 @@
-import gym
 import torch
 import torch.nn as nn
 from torch.distributions import Categorical
 
 
 class ActorCritic(nn.Module):
+    '''
+    A class representing the Actor-Critic model. Stores both the
+    actor (policy) network and the critic (value) network.
+    '''
 
     def __init__(self, state_space, action_space, p_hidden_size, v_hidden_size):
+        '''
+        Arguments:
+            state_space: the StateSpace object of the environment
+            action_space: the ActionSpace object of the environment
+            p_hidden_size: the number of neurons in the hidden layer of the policy network.
+            v_hidden_size: the number of neurons in the hidden layer of the value network.
+        '''
         super().__init__()
 
         self.state_space = state_space
@@ -16,12 +26,14 @@ class ActorCritic(nn.Module):
         input_dim = state_space.high.shape[0]
         output_dim = action_space.n
 
+        # Set up the critic network
         self.critic = nn.Sequential(
             nn.Linear(input_dim, v_hidden_size),
             nn.ReLU(),
             nn.Linear(v_hidden_size, 1)
         )
 
+        # Set up the actor network
         self.actor = nn.Sequential(
             nn.Linear(input_dim, p_hidden_size),
             nn.ReLU(),
@@ -30,6 +42,14 @@ class ActorCritic(nn.Module):
         )
 
     def forward(self, state):
+        '''
+        Arguments:
+            state: the current state of the environment
+
+        Returns:
+            action_probs: the action probabilities
+            state_values: the value of the state
+        '''
         action_probs = self.actor(state)
         state_values = self.critic(state)
 
@@ -37,21 +57,44 @@ class ActorCritic(nn.Module):
 
 
 class Agent(object):
+    '''
+    A class that represents an action-critc agent. Deals with
+    the selection of action, given a state, through the interaction
+    with the actor and critic networks.
+    '''
 
     def __init__(self, network):
+        '''
+        Arguments:
+            network: the actor-critic networks
+        '''
         self.network = network
 
+        # Used to cache experience from the environment.
         self.policy_reward = []
         self.policy_history = None
         self.value_history = None
 
     def select_move(self, state):
+        '''
+        Selects an action, given a state.
+
+        Arguments:
+            state: the current state of the environment
+
+        Returns:
+            action: the selected action, given the state.
+        '''
+
+        # Retrieves the action-probabilities and value of a state,
+        # given the state.
         pi_s, v_s = self.network(state)
 
         # Sample an action from this distribution.
         c_action = Categorical(pi_s)
         action = c_action.sample()
 
+        # Retrieves the log probability of an action.
         log_action = c_action.log_prob(action).view(-1, 1)
         v_s = v_s.view(-1, 1)
 
@@ -62,6 +105,7 @@ class Agent(object):
         else:
             self.policy_history = torch.cat([self.policy_history, log_action])
 
+        # Caches the value of each state for later use.
         if self.value_history is None:
             self.value_history = v_s
 
@@ -71,74 +115,9 @@ class Agent(object):
         return action
 
     def reset_history(self):
+        '''
+        Resets the policy and value history of the agent.
+        '''
         self.policy_reward = []
         self.policy_history = None
         self.value_history = None
-
-
-if __name__ == '__main__':
-
-    # Set up the CartPole Environment.
-    env = gym.make("CartPole-v0")
-
-    # Retrieve the state space and action space objects for CartPole.
-    state_space = env.observation_space
-    action_space = env.action_space
-    p_hidden_size = 16
-    v_hidden_size = 16
-
-    model = ActorCritic(state_space, action_space, p_hidden_size, v_hidden_size)
-    agent = Agent(model)
-
-    # Set up the loss function and optimiser for the NNs.
-    optimiser = torch.optim.RMSprop(model.parameters())
-
-    episodes = 100
-    discount = 0.99
-    for episode in range(episodes):
-        agent.reset_history()
-        state = torch.Tensor(env.reset())
-
-        total_reward = 0
-        done = False
-        while not done:
-            env.render()
-            action = agent.select_move(state)
-            next_state, reward, done, info = env.step(action.data.numpy())
-
-            agent.policy_reward.append(reward)
-
-            state = torch.Tensor(next_state)
-            total_reward += reward
-
-        # Cache the discounted rewards at each step of the episode
-        rewards = []
-        R = 0
-
-        # Calculate the discounted reward at each step of the episode.
-        for r in agent.policy_reward[::-1]:
-            R = r + discount * R
-            rewards.insert(0, R)
-
-        # Normalise the rewards for stability.
-        rewards = torch.FloatTensor(rewards).view(-1, 1)
-        rewards = (rewards - rewards.mean()) / (rewards.std())
-
-        # Retrieve the log probabilities of the actions over time.
-        log_pi_t = agent.policy_history
-        v_s_t = agent.value_history
-        advantage = rewards - v_s_t
-
-        policy_loss = (-log_pi_t * advantage.detach()).mean()
-
-        value_loss = advantage.pow(2).mean()
-        loss = policy_loss + 0.5 * value_loss
-        print(policy_loss, 0.5 * value_loss, total_reward)
-
-        optimiser.zero_grad()
-
-        # Retrieve gradients of the actor network
-        loss.backward()
-
-        # Take a gradient descent step for the actor.
-        optimiser.step()
